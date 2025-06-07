@@ -1,3 +1,7 @@
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
 from utils.config import Config
 from modules.m0_data_loader import DataLoader
 # 預留未來模組
