@@ -39,7 +39,9 @@ class DataLoader:
         """下載單一股票資料"""
         try:
             # 增加隨機延遲，避免同時請求
-            time.sleep(self.config.download_delay + random.uniform(1, 3))
+            delay = self.config.download_delay + random.uniform(2, 5)
+            self.logger.info(f"等待 {delay:.1f} 秒後開始下載...")
+            time.sleep(delay)
             
             # 使用更保守的設定
             data = yf.download(
@@ -48,7 +50,8 @@ class DataLoader:
                 end=end_date,
                 progress=False,
                 auto_adjust=True,
-                threads=False  # 禁用多執行緒以避免速率限制
+                threads=False,  # 禁用多執行緒以避免速率限制
+                ignore_tz=True  # 忽略時區以避免問題
             )
             
             if data.empty:
@@ -91,17 +94,21 @@ class DataLoader:
                 retry_count = 0
                 while retry_count < self.config.max_retries:
                     try:
+                        self.logger.info(f"下載區間: {chunk_start} ~ {chunk_end}")
                         data = self.download_data(symbol, chunk_start, chunk_end)
                         if data is not None:
                             all_data.append(data)
-                        break
+                            self.logger.info(f"成功下載 {len(data)} 筆資料")
+                            break
+                        else:
+                            raise Exception("下載結果為空")
                     except Exception as e:
                         retry_count += 1
                         if retry_count == self.config.max_retries:
                             self.logger.error(f"{symbol} 下載失敗，已達最大重試次數")
                             break
                         # 指數退避重試
-                        wait_time = (2 ** retry_count) + random.uniform(1, 3)
+                        wait_time = (2 ** retry_count) + random.uniform(5, 10)
                         self.logger.warning(f"重試 {symbol} ({retry_count}/{self.config.max_retries})，等待 {wait_time:.1f} 秒")
                         time.sleep(wait_time)
             
