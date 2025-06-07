@@ -136,3 +136,129 @@ Quanta II/
 * M2 執行時自動對應 param_log，不需人工輸入
 * 所有歷史回測結果統一儲存於 performance_master.csv
 * 使用者只需記住 signal 檔案，系統可自動追溯參數與策略類型
+
+## 📘 程式碼架構說明文件
+版本：v1.0
+說明：此文件說明 Quanta II 系統的整體模組架構、檔案規劃、執行流程與輸出結果，適用於開發者、維護者及新接手的技術團隊。
+
+### 🧱 系統模組架構總覽
+Quanta II 採用「模組化、低耦合、可擴展」的架構，劃分為 M0～M3 四大核心模組，串聯完成從資料取得到策略篩選的完整量化交易流程。
+
+```
+M0: 歷史資料下載
+ ↓
+M1: 策略信號產生
+ ↓
+M2: 回測與績效分析
+ ↓
+M3: 績效篩選與報告
+```
+
+### 📂 程式碼與資料夾結構
+```
+Quanta II/
+├── data/                       # M0 輸出：歷史股價資料
+│   └── AAPL.parquet
+├── signals/                   # M1 輸出：策略信號與參數對照
+│   ├── SMA_CROSS_0001.csv
+│   ├── param_log_SMA_CROSS_0001.json
+│   └── signal_param_map.json
+├── results/                   # M2 輸出：回測績效與每日資產變化
+│   ├── performance_SMA_CROSS_0001.csv
+│   ├── nav_SMA_CROSS_0001.parquet
+│   └── performance_master.csv
+├── reports/                   # M3 輸出：策略績效篩選報告
+│   ├── top10_sharpe.html
+│   ├── top10_sharpe.csv
+│   └── top10_sharpe.xlsx
+├── main_controller.py         # 主控制選單
+├── modules/                   # 所有模組實作
+│   ├── m0_data_loader.py
+│   ├── m1_signal_generator.py
+│   ├── m2_backtester.py
+│   └── m3_report_generator.py
+├── utils/                     # 工具函數與設定
+│   ├── indicator_utils.py     # 📌 技術指標計算模組（統一）
+│   └── config.py
+```
+
+### 🧩 各模組功能與輸出說明
+
+#### 🔹 M0：歷史資料下載模組
+功能：
+- 從 yfinance 下載股票歷史資料，並可分段補資料
+- 支援自動寫入 SQLite 或儲存為 .parquet
+
+執行結果：
+- data/<stock>.parquet
+- 或寫入：stock_price.db
+
+#### 🔹 M1：策略信號產生模組
+功能：
+- 支援多種策略類型（如 SMA_CROSS, RSI_BB）
+- 可自動產生參數組合，並輸出 signal 檔與參數對照表
+
+輸入選項：
+- Strategy Name、Stock List、Date Range、Auto/Manual Params
+
+輸出檔案：
+- signals/<strategy>_<param_id>.csv
+- signals/param_log_<strategy>.json
+- signals/signal_param_map.json
+- 選擇性合併：signals_master.csv
+
+#### 🔹 M2：回測與績效分析模組
+功能：
+- 根據 signal 檔執行回測，自動取得對應參數
+- 輸出每日資產變化與績效指標
+- 自動更新全局績效總表
+
+輸入選項：
+- Signal 檔案路徑、初始資金、手續費、倉位方式
+
+輸出檔案：
+- results/performance_<strategy>_<id>.csv
+- results/nav_<strategy>_<id>.parquet
+- results/performance_master.csv
+
+#### 🔹 M3：績效篩選與報告模組
+功能：
+- 根據回測績效（如 Sharpe Ratio）進行排序與篩選
+- 輸出報表格式可為 CSV / Excel / HTML
+- 支援條件式篩選與圖表顯示
+
+輸入選項：
+- Summary 檔案路徑、排序依據、Top N、條件式
+
+輸出檔案：
+- reports/top10_sharpe.csv
+- reports/top10_sharpe.xlsx
+- reports/top10_sharpe.html
+
+### 🧠 系統設計原則
+- 每個模組皆可獨立執行，無需依賴其他模組內部變數
+- 檔案命名與資料儲存規則一致，便於追蹤與分析
+- signal → param_log 自動對應機制，M2 可自動找參數
+- 所有回測結果集中在 performance_master.csv
+- 模組間低耦合：資料透過 CSV/Parquet 檔流通而非函數依賴
+
+### 📝 開發與維護建議
+
+#### 開發者指引：
+- 新策略開發時請遵循 M1 格式，輸出至 signals/
+- 若擴增技術指標，請更新 utils/indicator_utils.py
+- 所有模組應保有 CLI 界面（即直接執行可操作）
+
+#### 測試建議：
+- 每次執行 M1 或 M2 時自動寫入 logs 目錄
+- 確保 performance_master.csv 自動 append 而非覆蓋
+- 檢查是否產出對應 param_log 與 nav 檔案
+
+### 📌 未來擴展規劃（建議）
+
+| 模組 | 擴充建議 |
+|------|----------|
+| M1 | 加入參數組合網格定義 JSON 支援 |
+| M2 | 多策略合併回測（如 Portfolio 模擬） |
+| M3 | HTML 報表加上互動式圖表、策略卡片展示 |
+| 共通 | 加入自動清理或壓縮結果檔案機制 |
