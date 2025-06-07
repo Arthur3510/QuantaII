@@ -1,5 +1,5 @@
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 @dataclass
@@ -15,7 +15,7 @@ class Config:
     reports_dir: Path = Path("reports")
     
     # 資料庫設定
-    database: DatabaseConfig = DatabaseConfig()
+    database: DatabaseConfig = field(default_factory=DatabaseConfig)
     
     # 下載設定
     date_chunk_size: int = 180  # 分段下載天數
