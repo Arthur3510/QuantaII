@@ -77,27 +77,81 @@ class Backtester:
         perf['run_id'] = pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')
         return perf
 
-    def save(self, perf: dict, nav: pd.DataFrame, strategy: str, run_id: str, export_perf: bool, export_nav: bool):
+    def get_param_info(self, signal_file: str):
+        # 解析 <策略名稱>_<股票代碼>_<參數編號>.csv，允許策略名稱有多個 _
+        basename = os.path.basename(signal_file).replace('.csv', '')
+        parts = basename.split('_')
+        if len(parts) >= 3:
+            strategy = '_'.join(parts[:-2])
+            symbol = parts[-2]
+            param_id = parts[-1].zfill(4)  # 統一四位數
+        else:
+            strategy = parts[0]
+            symbol = 'UNKNOWN'
+            param_id = '0001'
+        # 先找信號檔案同資料夾下的 param_log
+        signal_dir = Path(signal_file).parent
+        param_log_path = signal_dir / f"param_log_{strategy}_{symbol}.json"
+        if not param_log_path.exists():
+            # 再找 signals 根目錄
+            param_log_path = self.config.signals_dir / f"param_log_{strategy}_{symbol}.json"
+        if param_log_path.exists():
+            with open(param_log_path, 'r', encoding='utf-8') as f:
+                param_log = json.load(f)
+            param_info = param_log.get(param_id, {})
+            params = param_info.get('params', {})
+        else:
+            params = {}
+        return strategy, symbol, param_id, params
+
+    def save(self, perf: dict, nav: pd.DataFrame, strategy: str, run_id: str, export_perf: bool, export_nav: bool, symbol: str, param_id: str, params: dict):
+        # 直接用信號檔案上層資料夾名稱作為 results 子資料夾
+        signal_dir = Path(self.current_signal_file).parent
+        subdir_name = signal_dir.name
+        subdir = self.results_dir / subdir_name
+        os.makedirs(subdir, exist_ok=True)
+        
+        # 增加策略、股票、參數資訊
+        perf_full = perf.copy()
+        perf_full['strategy'] = strategy
+        perf_full['symbol'] = symbol
+        perf_full['param_id'] = param_id
+        perf_full['params'] = json.dumps(params, ensure_ascii=False)
+        
         if export_perf:
-            perf_path = self.results_dir / f"performance_{strategy}_{run_id}.csv"
-            pd.DataFrame([perf]).to_csv(perf_path, index=False)
+            perf_path = subdir / f"performance_{strategy}_{symbol}_{param_id}.csv"
+            pd.DataFrame([perf_full]).to_csv(perf_path, index=False)
+        
         if export_nav:
-            nav_path = self.results_dir / f"nav_{strategy}_{run_id}.parquet"
+            nav_path = subdir / f"nav_{strategy}_{symbol}_{param_id}.parquet"
             nav.to_parquet(nav_path)
-        # append to performance_master.csv
-        master_path = self.results_dir / "performance_master.csv"
+        
+        # 在子資料夾中維護獨立的 performance_master.csv
+        master_path = subdir / "performance_master.csv"
         if master_path.exists():
             master = pd.read_csv(master_path)
         else:
             master = pd.DataFrame()
-        master = pd.concat([master, pd.DataFrame([perf])], ignore_index=True)
+        master = pd.concat([master, pd.DataFrame([perf_full])], ignore_index=True)
         master.to_csv(master_path, index=False)
+        
+        # 同時更新根目錄的 performance_master.csv
+        root_master_path = self.results_dir / "performance_master.csv"
+        if root_master_path.exists():
+            root_master = pd.read_csv(root_master_path)
+        else:
+            root_master = pd.DataFrame()
+        root_master = pd.concat([root_master, pd.DataFrame([perf_full])], ignore_index=True)
+        root_master.to_csv(root_master_path, index=False)
 
     def run(self, signal_file: str, symbol: str, initial_cash: float = 100000, fee: float = 0.001425, slippage: float = 0.0005, position: str = 'fixed=100', trade_time: str = 'next_open', export_perf: bool = True, export_nav: bool = True):
+        # 儲存當前信號檔案路徑
+        self.current_signal_file = signal_file
+        
         signals = self.load_signals(signal_file)
         price = self.load_price(symbol)
         nav, perf = self.run_backtest(price, signals, initial_cash, fee, slippage, position, trade_time)
-        strategy = os.path.basename(signal_file).split('_')[0]
+        strategy, symbol_from_file, param_id, params = self.get_param_info(signal_file)
         run_id = perf['run_id']
-        self.save(perf, nav, strategy, run_id, export_perf, export_nav)
+        self.save(perf, nav, strategy, run_id, export_perf, export_nav, symbol_from_file, param_id, params)
         self.logger.info(f"完成回測：{signal_file}，績效：{perf}") 

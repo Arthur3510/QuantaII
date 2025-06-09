@@ -1,5 +1,6 @@
 import sys
 import os
+import datetime
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from utils.config import Config
@@ -32,7 +33,23 @@ def main():
         elif choice == '3':
             run_m2(config)
         elif choice == '4':
-            run_m3(config)
+            print("\n[M3: 績效篩選與報告模組]")
+            summary_path = input("1. 請輸入 summary 檔案路徑（如 results/performance_master.csv）：")
+            metric = input("2. 請輸入排序依據（如 total_return, max_drawdown）：")
+            
+            top_mode = input("3. 請選擇 Top 模式（n=Top N, p=Top %，預設 n）：").lower()
+            if top_mode == 'p':
+                top_percent = float(input("請輸入 Top % 百分比（如 10）："))
+                top_n = None
+            else:
+                top_n = int(input("請輸入 Top N 數量（如 10）："))
+                top_percent = None
+            
+            conditions = input("4. 請輸入篩選條件（如 total_return>=0.05, max_drawdown<=0.1，可留空）：")
+            export_format = input("5. 請選擇輸出格式（csv/xlsx/html，預設 csv）：").lower() or 'csv'
+            
+            reporter = ReportGenerator(config.reports_dir)
+            reporter.run(summary_path, metric, top_n, top_percent, conditions, export_format)
         elif choice == '5':
             print("已離開系統。")
             break
@@ -73,7 +90,7 @@ def run_m0(config):
 
 def run_m1(config):
     print("\n[M1: 策略產生模組]")
-    strategy = input("1. 請輸入策略名稱（如 SMA_CROSS, RSI_BB）：").strip().upper()
+    strategy = input("1. 請輸入策略名稱（如 SMA_CROSS, RSI）：").strip().upper()
     symbols = input("2. 請輸入股票代碼（逗號分隔）：").strip().upper().split(',')
     start_date = input("3. 請輸入資料起始日 (YYYY-MM-DD)：").strip()
     end_date = input("4. 請輸入資料結束日 (YYYY-MM-DD)：").strip()
@@ -86,25 +103,51 @@ def run_m1(config):
     save_format = save_format.lower()
     export_param_log = export_param_log.lower() == 'true'
 
-    # 參數組合（簡化示例，實際可根據 param_mode 擴充）
+    # 新增：讓使用者自訂產生策略組數與參數範圍
     if strategy == 'SMA_CROSS':
         if param_mode == 'Auto':
-            param_space = [
-                {'short_period': 5, 'long_period': 20},
-                {'short_period': 10, 'long_period': 30},
-                {'short_period': 20, 'long_period': 60}
-            ]
+            print("請輸入 short_period 範圍（如 5,50）：")
+            short_min, short_max = map(int, input().strip().split(','))
+            print("請輸入 long_period 範圍（如 20,200）：")
+            long_min, long_max = map(int, input().strip().split(','))
+            print("請輸入 short_period 與 long_period 的步進（如 1,5）：")
+            short_step, long_step = map(int, input().strip().split(','))
+            print("請輸入要產生幾組策略（如 100）：")
+            n_combinations = int(input().strip())
+            param_space = []
+            for s in range(short_min, short_max+1, short_step):
+                for l in range(long_min, long_max+1, long_step):
+                    if l > s:
+                        param_space.append({'short_period': s, 'long_period': l})
+            # 隨機抽取 n 組（如超過）
+            import random
+            if len(param_space) > n_combinations:
+                param_space = random.sample(param_space, n_combinations)
         else:
             short_period = int(input("請輸入 short_period：").strip())
             long_period = int(input("請輸入 long_period：").strip())
             param_space = [{'short_period': short_period, 'long_period': long_period}]
-    elif strategy == 'RSI_BB' or strategy == 'RSI':
+    elif strategy == 'RSI':
         if param_mode == 'Auto':
-            param_space = [
-                {'period': 14, 'overbought': 70, 'oversold': 30},
-                {'period': 14, 'overbought': 75, 'oversold': 25},
-                {'period': 21, 'overbought': 70, 'oversold': 30}
-            ]
+            print("請輸入 period 範圍（如 7,30）：")
+            period_min, period_max = map(int, input().strip().split(','))
+            print("請輸入 overbought 範圍（如 65,85）：")
+            ob_min, ob_max = map(float, input().strip().split(','))
+            print("請輸入 oversold 範圍（如 15,35）：")
+            os_min, os_max = map(float, input().strip().split(','))
+            print("請輸入 period/overbought/oversold 步進（如 1,5,5）：")
+            period_step, ob_step, os_step = map(int, input().strip().split(','))
+            print("請輸入要產生幾組策略（如 100）：")
+            n_combinations = int(input().strip())
+            param_space = []
+            for p in range(period_min, period_max+1, int(period_step)):
+                for obv in range(int(ob_min), int(ob_max+1), int(ob_step)):
+                    for osv in range(int(os_min), int(os_max+1), int(os_step)):
+                        if osv < obv:  # oversold 必須小於 overbought
+                            param_space.append({'period': p, 'overbought': obv, 'oversold': osv})
+            import random
+            if len(param_space) > n_combinations:
+                param_space = random.sample(param_space, n_combinations)
         else:
             period = int(input("請輸入 period：").strip())
             overbought = float(input("請輸入 overbought：").strip())
@@ -114,8 +157,13 @@ def run_m1(config):
         print("不支援的策略名稱。")
         return
 
-    generator = SignalGenerator(config)
+    # 新增：自動建立子資料夾存放本次所有 signal 檔案
+    timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
     for symbol in symbols:
+        subdir = config.signals_dir / f"{strategy}_{symbol}_{timestamp}"
+        os.makedirs(subdir, exist_ok=True)
+        generator = SignalGenerator(config)
+        generator.signals_dir = subdir  # 指定本次 signal 子資料夾
         generator.run(
             symbol=symbol,
             strategy=strategy,
@@ -125,10 +173,11 @@ def run_m1(config):
             save_format=save_format,
             export_param_log=export_param_log
         )
+    print(f"本次所有信號檔案已儲存於 {subdir}")
 
 def run_m2(config):
     print("\n[M2: 策略回測模組]")
-    signal_file = input("1. 請輸入 signal 檔案路徑（如 signals/SMA_CROSS_0001.csv）：").strip()
+    signal_files = input("1. 請輸入 signal 檔案路徑（可逗號分隔多個或資料夾，如 signals/SMA_CROSS_AAPL_0001.csv,signals/SMA_CROSS_TSLA_0001.csv 或 signals/SMA_CROSS_AAPL_20240608_001）：").strip()
     symbol = input("2. 請輸入股票代碼（如 AAPL）：").strip().upper()
     initial_cash = float(input("3. 請輸入初始資金（預設 100000）：").strip() or 100000)
     fee = float(input("4. 請輸入手續費率（預設 0.001425）：").strip() or 0.001425)
@@ -142,41 +191,25 @@ def run_m2(config):
     export_nav = export_nav.lower() == 'true'
 
     backtester = Backtester(config)
-    backtester.run(
-        signal_file=signal_file,
-        symbol=symbol,
-        initial_cash=initial_cash,
-        fee=fee,
-        slippage=slippage,
-        position=position,
-        trade_time=trade_time,
-        export_perf=export_perf,
-        export_nav=export_nav
-    )
-
-def run_m3(config):
-    print("\n[M3: 績效篩選與報告模組]")
-    summary_path = input("1. 請輸入 summary 檔案路徑（如 results/performance_master.csv）：").strip() or str(config.results_dir / 'performance_master.csv')
-    metric = input("2. 請輸入排序依據（如 total_return, max_drawdown）：").strip() or 'total_return'
-    top_mode = input("3. 請選擇 Top 模式（n=Top N, p=Top %，預設 n）：").strip() or 'n'
-    if top_mode == 'n':
-        top_n = int(input("請輸入 Top N 數量（如 10）：").strip() or 10)
-        top_percent = None
-    else:
-        top_n = None
-        top_percent = float(input("請輸入 Top %（如 5 表示前 5%）：").strip() or 5)
-    conditions = input("4. 請輸入篩選條件（如 total_return>=0.05, max_drawdown<=0.1，可留空）：").strip()
-    export_format = input("5. 請選擇輸出格式（csv/xlsx/html，預設 csv）：").strip() or 'csv'
-
-    reporter = ReportGenerator(config.reports_dir)
-    reporter.run(
-        summary_path=summary_path,
-        metric=metric,
-        top_n=top_n,
-        top_percent=top_percent,
-        conditions=conditions,
-        export_format=export_format
-    )
+    # 支援 signal 檔案路徑為資料夾
+    all_files = []
+    for f in [f.strip() for f in signal_files.split(',') if f.strip()]:
+        if os.path.isdir(f):
+            all_files.extend([os.path.join(f, x) for x in os.listdir(f) if x.endswith('.csv')])
+        else:
+            all_files.append(f)
+    for signal_file in all_files:
+        backtester.run(
+            signal_file=signal_file,
+            symbol=symbol,
+            initial_cash=initial_cash,
+            fee=fee,
+            slippage=slippage,
+            position=position,
+            trade_time=trade_time,
+            export_perf=export_perf,
+            export_nav=export_nav
+        )
 
 if __name__ == '__main__':
     main() 

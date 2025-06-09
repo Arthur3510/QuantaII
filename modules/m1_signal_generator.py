@@ -94,20 +94,17 @@ class SignalGenerator:
             self.logger.error(f"不支援的策略類型: {strategy}")
             return None
 
-    def save_signals(self, df: pd.DataFrame, strategy: str, param_id: str):
-        """儲存信號檔案"""
+    def save_signals(self, df: pd.DataFrame, strategy: str, symbol: str, param_id: str):
+        """儲存信號檔案，檔名包含股票代碼"""
         try:
-            # 儲存信號檔案
-            signal_path = self.signals_dir / f"{strategy}_{param_id}.csv"
+            signal_path = self.signals_dir / f"{strategy}_{symbol}_{param_id}.csv"
             df.to_csv(signal_path)
             self.logger.info(f"已儲存信號檔案: {signal_path}")
-            
-            # 更新參數對照表
             self.param_log[param_id] = {
                 'strategy': strategy,
+                'symbol': symbol,
                 'params': self.signal_param_map[param_id]
             }
-            
         except Exception as e:
             self.logger.error(f"儲存信號檔案時發生錯誤: {str(e)}")
 
@@ -167,7 +164,7 @@ class SignalGenerator:
             signals = self.generate_signals(df, strategy, params)
             if signals is not None:
                 # 儲存信號
-                signal_path = self.signals_dir / f"{strategy}_{param_id}.{save_format}"
+                signal_path = self.signals_dir / f"{strategy}_{symbol}_{param_id}.{save_format}"
                 try:
                     if save_format == 'csv':
                         signals.to_csv(signal_path)
@@ -182,17 +179,17 @@ class SignalGenerator:
                 # 更新參數對照表
                 self.param_log[param_id] = {
                     'strategy': strategy,
+                    'symbol': symbol,
                     'params': self.signal_param_map[param_id]
                 }
         # 儲存參數對照表
         if export_param_log:
             try:
-                param_log_path = self.signals_dir / f"param_log_{strategy}.json"
+                param_log_path = self.signals_dir / f"param_log_{strategy}_{symbol}.json"
                 with open(param_log_path, 'w', encoding='utf-8') as f:
                     json.dump(self.param_log, f, indent=2, ensure_ascii=False)
                 self.logger.info(f"已儲存參數對照表: {param_log_path}")
-                # 儲存信號-參數對應表
-                signal_param_path = self.signals_dir / "signal_param_map.json"
+                signal_param_path = self.signals_dir / f"signal_param_map_{strategy}_{symbol}.json"
                 with open(signal_param_path, 'w', encoding='utf-8') as f:
                     json.dump(self.signal_param_map, f, indent=2, ensure_ascii=False)
                 self.logger.info(f"已儲存信號-參數對應表: {signal_param_path}")
